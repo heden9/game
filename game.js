@@ -6,7 +6,7 @@
     var stop = document.getElementById('stop-label');
     var flag = false;
     var skillReg = /\bcooling\b/;
-    var msg = [];
+    var msg = {}; // Initialize as an object
     window.onload = function () {
         setTimeout(function () {
             loadWord.innerHTML = 'SUCCESS'
@@ -25,13 +25,28 @@
     function sendToast(text) {
         console.log(text);
         var stage = document.getElementById('stage');
+        if (!stage) {
+            console.error("Stage element not found!");
+            return;
+        }
         var toast = document.getElementById('toast');
-        toast && stage.removeChild(toast);
-        var html = "<div id='toast' class='fadeInDown'>" + text + "</div>";
-        stage.innerHTML += html;
+        if (toast) {
+            // If toast exists, update its content and reset animation
+            toast.innerHTML = text;
+            toast.className = 'fadeInDown'; // Re-apply animation class
+        } else {
+            // If toast doesn't exist, create and append it
+            var html = "<div id='toast' class='fadeInDown'>" + text + "</div>";
+            stage.innerHTML += html;
+            toast = document.getElementById('toast'); // Get the newly created toast
+        }
+
+        // Common logic to remove the toast after a delay
         setTimeout(function () {
-            toast = document.getElementById('toast');
-            toast && stage.removeChild(toast);
+            // Ensure toast exists before trying to remove it
+            // (it might have been removed by another rapid call to sendToast)
+            var currentToast = document.getElementById('toast');
+            currentToast && stage.removeChild(currentToast);
         },2000);
     }
     function startGames() {
@@ -45,7 +60,7 @@
         var context = canvas.getContext('2d');
         var img = document.getElementsByClassName('rain');
         var cloud = document.getElementsByClassName('cloud');
-        var boss = document.getElementById('boss');
+        // var boss = document.getElementById('boss'); // Removed unused variable
         var lastAdvance22 = 0;
         var f = 0;
         var lifevalue = 10;
@@ -65,6 +80,20 @@
         var ballfires = [];
         var Lasers = [];
         const colors=["#33CC66","#0066FF","#FF9933","#FF0033","yellow","#CC00FF"];
+
+        // Pre-create SpriteSheetPainters
+        const painter_personlive = new SpriteSheetPainter(personlive);
+        const painter_persondown = new SpriteSheetPainter(persondown);
+        const painter_personup = new SpriteSheetPainter(personup);
+        const painter_personattack = new SpriteSheetPainter(personattack);
+        const painter_personright = new SpriteSheetPainter(personright);
+        const painter_persondie = new SpriteSheetPainter(persondie);
+        const painter_personleft = new SpriteSheetPainter(personleft);
+        const painter_ghostCells = new SpriteSheetPainter(ghostCells);
+        const painter_ghostdie = new SpriteSheetPainter(ghostdie);
+        // Note: Projectile painters (paofly, bigpaofly, etc.) are usually tied to the projectile's creation,
+        // so pre-creating them globally might be less beneficial unless they are also frequently swapped.
+
         for(var i=0; i< 6; i++){
             var disc = {
                 x: Math.pow(-1,Math.ceil(Math.random()*100))*Math.ceil(Math.random()*100),
@@ -309,32 +338,40 @@
             }
         };
         function protectperson(){
-            protect = 2;
-            if(ghost.painter.cells != persondie)
-                ghost.painter = new SpriteSheetPainter(persondie);
+            protect = 2; // Apply 2 seconds of protection
+            // The painter change will be handled in persondies or when protection wears off.
         }
-        function persondies(){
-            if(protect > 0)
-                return;
-            if(ghost.die)
-                return;
-            protectperson();
-            ghost.lifeValue --;
 
-            if(ghost.lifeValue == 0){
-                if(ghost.painter.cells != persondie)
-                    ghost.painter = new SpriteSheetPainter(persondie);
+        function persondies(){
+            if(protect > 0 || ghost.die) // If already protected or dead, do nothing
+                return;
+
+            ghost.lifeValue--;
+            sendToast('Ouch! Life: ' + ghost.lifeValue); // Give feedback
+
+            if(ghost.lifeValue <= 0){
+                ghost.lifeValue = 0; // Ensure life doesn't go negative
+                if(ghost.painter !== painter_persondie) { // Change painter only if not already dying
+                    ghost.painter = painter_persondie;
+                }
                 ghost.velocityX = 0;
                 ghost.velocityY = 0;
                 ghost.gravity = 0;
-                ghost.die = true;
+                ghost.die = true; // Set die state
                 if(resurrection <= 0){
                     var alert = document.getElementById('dialog');
                     alert.style.display = 'block';
-
+                    // Consider also stopping the game animation loop here
                 }else{
                     sendToast('你死了..按P可复活');
                 }
+            } else {
+                // If not dead yet, but took damage, apply temporary protection
+                protectperson();
+                // Optionally, make the ghost blink or change sprite for a short duration
+                // For now, protectperson() just sets the 'protect' variable.
+                // The actual visual change for protection (if any, besides invulnerability)
+                // would need to be handled in the ghost's update/paint logic or runInPlace.
             }
         }
         function IncreaseDifficulty(){
@@ -386,7 +423,7 @@
             addpaos(ghost.left + 28,ghost.top + 20,5,-1);
         }
         function addEnemy(a=1000,b= -3.5,c=0){
-            var Enemy = new Sprite('Enemy', new SpriteSheetPainter(ghostCells),[EnemyInPlace,secondEnemy]);
+            var Enemy = new Sprite('Enemy', painter_ghostCells,[EnemyInPlace,secondEnemy]);
             Enemy.spritesheet.src = './img/ren.png';
             Enemy.left = a;
             Enemy.top = Math.ceil(Math.random()*400);
@@ -410,11 +447,13 @@
             var cnt=0;
             for(var i = 0;i<Enemys.length;i++){
                 if(Enemys[i].left + Enemys[i].width  > 0 && Enemys[i].left  < context.canvas.width && Enemys[i].top <  context.canvas.height)
-                    Enemys[cnt++] = Enemys[i];
+                    if (i !== cnt) {
+                        Enemys[cnt] = Enemys[i];
+                    }
+                    cnt++;
+                }
             }
-            while(Enemys.length > Math.min(difficulty,cnt)){
-                Enemys.pop();
-            }
+            Enemys.length = Math.min(cnt, difficulty);
         }
         function lifecalue(){
             var str = "";
@@ -424,8 +463,10 @@
                 str = '⊙﹏⊙';
             return str;
         }
-        var ghost = new Sprite('ghost', new SpriteSheetPainter(personlive),[runInPlace,secondPlace]);
+        var ghost = new Sprite('ghost', painter_personlive,[runInPlace,secondPlace]);
         ghost.lifeValue = lifevalue;
+        ghost.fireTime = null; // Initialize fireTime
+        ghost.laserTime = null; // Initialize laserTime
         function calculateFps(){
             var now = (+new Date),
                 fps = 1000 / (now - lastTime);
@@ -438,11 +479,12 @@
                 if(distance <= 40 && !Enemys[i].die)
                     persondies();
             }
-            for(var i = 0;i < balls.length;i++){
+            // Iterate backwards for balls to allow safe splicing
+            for(var i = balls.length - 1; i >= 0; i--){
                 var distance = Math.sqrt(Math.pow((ghost.left + .5*ghost.width) - balls[i].x,2) + Math.pow((ghost.top + .5*ghost.height) - balls[i].y,2));
                 if(distance <= 30){
                     persondies();
-                    balls.splice(i,1);
+                    balls.splice(i,1); 
                 }
             }
         }
@@ -459,70 +501,74 @@
         function paoDetection(){
             if(ghost.die)
                 return;
-            for(var j = 0;j < paos.length; j++){
-                for(var i = 0;i < Enemys.length;i++){
+            // Iterate backwards for paos to allow safe splicing
+            for(var j = paos.length - 1; j >= 0; j--){
+                for(var i = 0;i < Enemys.length;i++){ // Inner loop can be forward if not splicing Enemys here
+                    if (Enemys[i].die) continue; // Skip already dead enemies for this pao
                     var distance = Math.sqrt(Math.pow((paos[j].left) - (Enemys[i].left + .5*Enemys[i].width),2) + Math.pow(paos[j].top - (Enemys[i].top + .5*Enemys[i].height),2));
-                    if(distance <= 31 && !Enemys[i].die)
-                    {
+                    if(distance <= 31) { // Removed !Enemys[i].die check as it's covered by continue
                         score++;
                         Enemys[i].die = true;
                         Enemys[i].velocityY = 5;
-                        Enemys[i].painter = new SpriteSheetPainter(ghostdie);
-                        paos.splice(j,1);
-                        break;
+                        Enemys[i].painter = painter_ghostdie;
+                        paos.splice(j,1); // Safe due to backward iteration of paos
+                        break; // Move to the next pao (or finish if this was the last one)
                     }
-
                 }
             }
-            for(var j = 0;j < Lasers.length; j++){
-                for(var i = 0;i < Enemys.length;i++){
-                    if(Enemys[i].top + Enemys[i].height >= Lasers[j].top + 24 && Enemys[i].top <= Lasers[j].top + 100 && Enemys[i].left + Enemys[i].width >= Lasers[j].left && !Enemys[i].die)
-                    {
+
+            // Lasers affecting Enemies and Balls
+            for(var j = Lasers.length - 1; j >= 0; j--){ // Iterate Lasers backwards if we were to splice Lasers
+                // Lasers vs Enemies
+                for(var i = 0; i < Enemys.length; i++){
+                    if (Enemys[i].die) continue;
+                    if(Enemys[i].top + Enemys[i].height >= Lasers[j].top + 24 && Enemys[i].top <= Lasers[j].top + 100 && Enemys[i].left + Enemys[i].width >= Lasers[j].left) {
                         score = score + 1;
                         Enemys[i].die = true;
                         Enemys[i].velocityY = 5;
-                        Enemys[i].painter = new SpriteSheetPainter(ghostdie);
-                        break;
+                        Enemys[i].painter = painter_ghostdie;
+                        // Do not break here if one laser can hit multiple enemies in its path
                     }
                 }
-            }
-            for(var j = 0;j < Lasers.length; j++){
-                for(var i = 0;i < balls.length;i++){
+                // Lasers vs Balls - iterate balls backward for safe splicing
+                for(var i = balls.length - 1; i >= 0; i--){
                     if(balls[i].y + balls[i].radius >= Lasers[j].top + 24 && balls[i].y <= Lasers[j].top + 100 && balls[i].x + balls[i].radius >= Lasers[j].left ){
                         score++;
-                        balls.splice(i,1);
-                        break;
+                        balls.splice(i,1); // Safe due to backward iteration of balls
+                        // Do not break here if one laser can destroy multiple balls
                     }
                 }
             }
-            for(var j = 0;j < bigpaos.length; j++){
+
+            // Iterate backwards for bigpaos to allow safe splicing
+            for(var j = bigpaos.length - 1; j >= 0; j--){
                 for(var i = 0;i < Enemys.length;i++){
+                    if (Enemys[i].die) continue;
                     var distance = Math.sqrt(Math.pow((bigpaos[j].left) - (Enemys[i].left + .5*Enemys[i].width),2) + Math.pow(bigpaos[j].top - (Enemys[i].top + .5*Enemys[i].height),2));
-                    if(distance <= 40  && !Enemys[i].die)
-                    {
+                    if(distance <= 40) {
                         score = score + 1;
                         Enemys[i].die = true;
                         Enemys[i].velocityY = 5;
-                        Enemys[i].painter = new SpriteSheetPainter(ghostdie);
-                        bigpaos.splice(j,1);
-                        break;
+                        Enemys[i].painter = painter_ghostdie;
+                        bigpaos.splice(j,1); // Safe
+                        break; 
                     }
-
                 }
             }
-            for(var j = 0;j < ballfires.length; j++){
+
+            // Iterate backwards for ballfires to allow safe splicing
+            for(var j = ballfires.length - 1; j >= 0; j--){
                 for(var i = 0;i < Enemys.length;i++){
+                    if (Enemys[i].die) continue;
                     var distance = Math.sqrt(Math.pow((ballfires[j].left) - (Enemys[i].left + .5*Enemys[i].width),2) + Math.pow(ballfires[j].top - (Enemys[i].top + .5*Enemys[i].height),2));
-                    if(distance <= 40  && !Enemys[i].die)
-                    {
-                        score = score +5;
+                    if(distance <= 40) {
+                        score = score +5; // ballfires give more score
                         Enemys[i].die = true;
                         Enemys[i].velocityY = 5;
-                        Enemys[i].painter = new SpriteSheetPainter(ghostdie);
-                        ballfires.splice(j,1);
+                        Enemys[i].painter = painter_ghostdie;
+                        ballfires.splice(j,1); // Safe
                         break;
                     }
-
                 }
             }
         }
@@ -535,38 +581,40 @@
             if(ghost.die)
                 return;
             ghost.gravity = .1;
-            if(ghost.painter.cells != personup && protect <= 0)
-                ghost.painter = new SpriteSheetPainter(personup);
+            if(canChangeGhostPainter() && ghost.painter !== painter_personup)
+                ghost.painter = painter_personup;
         }
+
+        function canChangeGhostPainter() {
+            return protect <= 0 && !ghost.die;
+        }
+
         function doKeyDown(e) {
             e.preventDefault();
             keybuf[e.keyCode] = true;
-            var keyID = "";
-            for (k in keybuf) {
-                if (keybuf[k] == true) {
-                    keyID += k + " ";
+
+            // Key codes: R=82, P=80, A=65, X=88, Z=90, Up=38, Right=39, Down=40, Left=37
+
+            if (keybuf[82]) { // R key for Laser
+                if (ghost.die || score < 100) return;
+                if (canChangeGhostPainter() && ghost.painter !== painter_personleft) {
+                    ghost.painter = painter_personleft;
                 }
-            }
-            if(keyID.indexOf('82') != -1 ) {
-                if(ghost.die || score < 100)
-                    return;
-                if(ghost.painter.cells != personleft && protect <= 0)
-                    ghost.painter = new SpriteSheetPainter(personleft);
-                if(protect <= 0){
-                    addLaser(ghost.left + 22,ghost.top - 46);
+                if (protect <= 0) {
+                    addLaser(ghost.left + 22, ghost.top - 46);
                     ghost.velocityX = 0;
                     ghost.velocityY = 0;
                     ghost.gravity = 0;
                 }
+                return; // R key action takes precedence for this frame
             }
-            if(keyID.indexOf('82') != -1)
-                return;
-            if(keyID.indexOf('80') != -1) {
-                if(!ghost.die || resurrection <= 0)
-                    return;
-                if(ghost.painter.cells != personlive && protect <= 0)
-                    ghost.painter = new SpriteSheetPainter(personlive);
-                score = Math.floor(score * 1/2);
+
+            if (keybuf[80]) { // P key for Resurrection
+                if (!ghost.die || resurrection <= 0) return;
+                if (canChangeGhostPainter() && ghost.painter !== painter_personlive) {
+                    ghost.painter = painter_personlive;
+                }
+                score = Math.floor(score * 1 / 2);
                 ghost.lifeValue = lifevalue;
                 ghost.left = 200;
                 ghost.top = 200;
@@ -574,70 +622,66 @@
                 ghost.velocityY = 0;
                 ghost.gravity = .1;
                 ghost.die = false;
-                for(var i = 0; i < Enemys.length; i ++){
+                for (var i = 0; i < Enemys.length; i++) {
                     Enemys[i].die = true;
                     Enemys[i].velocityY = 5;
-                    Enemys[i].painter = new SpriteSheetPainter(ghostdie);
+                    Enemys[i].painter = painter_ghostdie;
                 }
-                resurrection --;
+                resurrection--;
                 sendToast('复活后拥有3秒的保护时间，起来战斗吧！');
+                // No return here, other keys might still be processed if needed, though unlikely with P
             }
 
-            if(ghost.die)
-                return;
-            if(keyID.indexOf('65') != -1 && keyID.indexOf('38') != -1) {
-                if(ghost.die || score < 200)
-                    return;
-                if(ghost.painter.cells != personattack && protect <= 0)
-                    ghost.painter = new SpriteSheetPainter(personattack);
-                if(protect <= 0)
-                    addfireball();
-            }
-            if(keyID.indexOf('88') != -1) {
-                if(ghost.painter.cells != personattack && protect <= 0)
-                    ghost.painter = new SpriteSheetPainter(personattack);
-                if(protect <= 0)
-                    addpaos(ghost.left + 28,ghost.top + 8);
-            }
-            if(keyID.indexOf('90') != -1) {
-                if(score < 50)
-                    return;
-                if(ghost.painter.cells != personattack && protect <= 0)
-                    ghost.painter = new SpriteSheetPainter(personattack);
-                if(protect <= 0)
-                    addbig(ghost.left + 28,ghost.top + 8);
-            }
-//				if(keyID.indexOf('32') != -1) {
-////					if(score <= 20){
-////						return;
-////					}
-////					if(bigadds == true)
-////						bigadds = false;
-////					else
-////						bigadds = true;
-//					threeadds();
-//				}
+            if (ghost.die) return; // No further actions if ghost is dead
 
-            if(keyID.indexOf('38') != -1)  { // up arrow and W
-                ghost.velocityY = Math.min(4,.3 * ghost.velocityY - 4);
-                if(ghost.painter.cells != persondown && protect <= 0)
-                    ghost.painter = new SpriteSheetPainter(persondown);
+            if (keybuf[65] && keybuf[38]) { // A and Up Arrow for fireball
+                if (score < 200) return; // score check specific to this combo
+                if (canChangeGhostPainter() && ghost.painter !== painter_personattack) {
+                    ghost.painter = painter_personattack;
+                }
+                if (protect <= 0) addfireball();
+            } else if (keybuf[88]) { // X key for paos
+                if (canChangeGhostPainter() && ghost.painter !== painter_personattack) {
+                    ghost.painter = painter_personattack;
+                }
+                if (protect <= 0) addpaos(ghost.left + 28, ghost.top + 8);
+            } else if (keybuf[90]) { // Z key for big paos
+                if (score < 50) return; // score check specific to this action
+                if (canChangeGhostPainter() && ghost.painter !== painter_personattack) {
+                    ghost.painter = painter_personattack;
+                }
+                if (protect <= 0) addbig(ghost.left + 28, ghost.top + 8);
+            }
+            // Commented out spacebar/threeadds logic as it was in the original
+            // if(keybuf[32]) { // Spacebar
+            //     threeadds();
+            // }
 
+            // Movement keys - allow multiple movement keys to be processed (e.g., up and right)
+            // These are processed independently of action keys above (unless an action key caused a 'return')
+            if (keybuf[38]) { // Up arrow or W (W is not standard here, but original code implies arrow keys)
+                ghost.velocityY = Math.min(4, .3 * ghost.velocityY - 4);
+                if (canChangeGhostPainter() && ghost.painter !== painter_personup) { 
+                    ghost.painter = painter_personup; 
+                }
             }
-            if(keyID.indexOf('39') != -1)  { // right arrow and D
-                ghost.velocityX = Math.min(4,ghost.velocityX + 1.3);
-                if(ghost.painter.cells != personright && protect <= 0)
-                    ghost.painter = new SpriteSheetPainter(personright);
+            if (keybuf[40]) { // Down arrow or S
+                ghost.velocityY = Math.min(4, Math.abs(ghost.velocityY + .1 * ghost.velocityY));
+                if (canChangeGhostPainter() && ghost.painter !== painter_persondown) {
+                    ghost.painter = painter_persondown;
+                }
             }
-            if(keyID.indexOf('40') != -1)  { // down arrow and S
-                ghost.velocityY = Math.min(4,Math.abs(ghost.velocityY + .1*ghost.velocityY));
-                if(ghost.painter.cells != persondown && protect <= 0)
-                    ghost.painter = new SpriteSheetPainter(persondown);
+            if (keybuf[37]) { // Left arrow or A
+                ghost.velocityX = Math.min(1, .3 * ghost.velocityX - 2); // This logic seems a bit off for typical left movement, might need review
+                if (canChangeGhostPainter() && ghost.painter !== painter_personleft) {
+                    ghost.painter = painter_personleft;
+                }
             }
-            if(keyID.indexOf('37') != -1)  { // left arrow and A
-                ghost.velocityX = Math.min(1,.3 * ghost.velocityX - 2);
-                if(ghost.painter.cells != personleft && protect <= 0)
-                    ghost.painter = new SpriteSheetPainter(personleft);
+            if (keybuf[39]) { // Right arrow or D
+                ghost.velocityX = Math.min(4, ghost.velocityX + 1.3);
+                if (canChangeGhostPainter() && ghost.painter !== painter_personright) {
+                    ghost.painter = painter_personright;
+                }
             }
         }
         function drawbackground(now){
@@ -688,13 +732,15 @@
             }
 
             var cnt=0;
-            for(var i=0;i<balls.length;i++){
-                if(balls[i].x + balls[i].radius > 0 && balls[i].x - balls[i].radius < context.canvas.width)
-                    balls[cnt++] = balls[i];
+            for (let i = 0; i < balls.length; i++) {
+                if (balls[i].x + balls[i].radius > 0 && balls[i].x - balls[i].radius < context.canvas.width) {
+                    if (i !== cnt) {
+                        balls[cnt] = balls[i];
+                    }
+                    cnt++;
+                }
             }
-            while(balls.length > Math.min(100,cnt)){
-                balls.pop();
-            }
+            balls.length = Math.min(cnt, 100); // Max 100 balls
         }
         function cloudrun(context){
             for(var i=0; i < discs.length; i++){
@@ -752,13 +798,15 @@
                 paos[i].paint(context);
             }
             var cnt=0;
-            for(var i = 0;i<paos.length;i++){
-                if(paos[i].left  > 0 && paos[i].left  < context.canvas.width)
-                    paos[cnt++] = paos[i];
+            for (let i = 0; i < paos.length; i++) {
+                if (paos[i].left > 0 && paos[i].left < context.canvas.width) {
+                    if (i !== cnt) {
+                        paos[cnt] = paos[i];
+                    }
+                    cnt++;
+                }
             }
-            while(paos.length > Math.min(100,cnt)){
-                paos.pop();
-            }
+            paos.length = Math.min(cnt, 100); // Max 100 paos
         }
         var	ballfireInPlace = {
             lastAdvance: 0,
@@ -805,13 +853,15 @@
                 ballfires[i].paint(context);
             }
             var cnt = 0;
-            for(var i = 0;i < ballfires.length;i++){
-                if(ballfires[i].left  > 0 && ballfires[i].left  < context.canvas.width && ballfires[i].top < context.canvas.height)
-                    ballfires[cnt++] = ballfires[i];
+            for (let i = 0; i < ballfires.length; i++) {
+                if (ballfires[i].left > 0 && ballfires[i].left < context.canvas.width && ballfires[i].top < context.canvas.height) {
+                    if (i !== cnt) {
+                        ballfires[cnt] = ballfires[i];
+                    }
+                    cnt++;
+                }
             }
-            while(ballfires.length > Math.min(100,cnt)){
-                ballfires.pop();
-            }
+            ballfires.length = Math.min(cnt, 100); // Max 100 ballfires
         }
         function addbig(a,b,c = 8,d = Math.pow(-1,Math.ceil(Math.random()*100))){
             if(ghost.die)
@@ -832,13 +882,15 @@
                 bigpaos[i].paint(context);
             }
             var cnt = 0;
-            for(var i = 0;i < bigpaos.length;i++){
-                if(bigpaos[i].left  > 0 && bigpaos[i].left  < context.canvas.width)
-                    bigpaos[cnt++] = bigpaos[i];
+            for (let i = 0; i < bigpaos.length; i++) {
+                if (bigpaos[i].left > 0 && bigpaos[i].left < context.canvas.width) {
+                    if (i !== cnt) {
+                        bigpaos[cnt] = bigpaos[i];
+                    }
+                    cnt++;
+                }
             }
-            while(bigpaos.length > Math.min(5,cnt)){
-                bigpaos.pop();
-            }
+            bigpaos.length = Math.min(cnt, 5); // Max 5 bigpaos
         }
         function addLaser(a,b){
             if(ghost.die)
@@ -903,7 +955,7 @@
         }
         window.requestAnimationFrame(animate);
         document.onclick = function (e) {
-            if(e.target.id != 'stop')
+            if(e.target.id != 'stop-label')
                 return;
             console.log(e.target.checked);
             flag = e.target.checked;
